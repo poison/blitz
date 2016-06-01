@@ -33,7 +33,7 @@
     define('BLITZ_NODE_TYPE_INCLUDE', 14);
     define('BLITZ_NODE_TYPE_END', 22);
     define('BLITZ_NODE_TYPE_CONTEXT', 26);
-    define('BLITZ_NODE_TYPE_CONDITION', 30);
+    define('BLITZ_NODE_TYPE_SET', 30);
 
     define('BLITZ_NODE_TYPE_WRAPPER_ESCAPE', 46);
     define('BLITZ_NODE_TYPE_WRAPPER_DATE', 50);

@@ -247,6 +247,13 @@ ZEND_END_MODULE_GLOBALS(blitz)
         ('t' == s[0] && 'h' == s[1] && 'i' == s[2] && 's' == s[3] && ':' == s[4] && ':' == s[5]))      \
     )
 
+#define BLITZ_STRING_IS_SET(s, len)                                                         \
+    ((3 == len) &&                                                                          \
+        (('S' == s[0] && 'E' == s[1] && 'T' == s[2])                                        \
+        ||                                                                                  \
+        ('s' == s[0] && 'e' == s[1] && 't' == s[2]))                                        \
+    )
+
 #define BLITZ_WRAPPER_MAX_ARGS                  3
 
 // base node types
@@ -257,7 +264,7 @@ ZEND_END_MODULE_GLOBALS(blitz)
 #define BLITZ_NODE_TYPE_BEGIN                   (4 << 2 | BLITZ_TYPE_METHOD) /* non-finalized node - will become BLITZ_NODE_TYPE_CONTEXT */
 #define BLITZ_NODE_TYPE_END                     (5 << 2 | BLITZ_TYPE_METHOD) /* non-finalized node - will be removed after parsing */
 #define BLITZ_NODE_TYPE_CONTEXT                 (6 << 2 | BLITZ_TYPE_METHOD) /* {{ BEGIN a }} bla-bla {{ END }} */
-#define BLITZ_NODE_TYPE_CONDITION               (7 << 2 | BLITZ_TYPE_METHOD) /* {{ BEGIN a }} bla-bla {{ END }} */
+#define BLITZ_NODE_TYPE_SET                     (7 << 2 | BLITZ_TYPE_METHOD) /* {{ set($key, $value) }} */
 // reserved +3 base types
 
 #define BLITZ_NODE_TYPE_WRAPPER_ESCAPE          (11 << 2 | BLITZ_TYPE_METHOD) 
@@ -723,6 +730,7 @@ typedef int (*zend_native_function)(zval *, zval *, zval * TSRMLS_CC);
 #define BLITZ_CALL_ERROR_IF_TOO_COMPLEX          8
 
 #define BLITZ_CALL_ERROR_IF_METHOD_CALL_TOO_COMPLEX 9
+#define BLITZ_CALL_ERROR_SET                        10
 
 #define BLITZ_ZVAL_NOT_EMPTY(z, res)                                                              \
     switch (Z_TYPE_PP(z)) {                                                                       \

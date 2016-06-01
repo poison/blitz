@@ -79,6 +79,7 @@ static int blitz_exec_nodes_ex(blitz_tpl *tpl, blitz_node *first, zval *id,
 static inline int blitz_analize (blitz_tpl *tpl TSRMLS_DC);
 static inline void blitz_remove_spaces_around_context_tags(blitz_tpl *tpl TSRMLS_DC);
 static inline unsigned int blitz_extract_var(blitz_tpl *tpl, char *name, unsigned long len, unsigned char is_path, zval *params, long *l, zval ***z TSRMLS_DC);
+static inline int blitz_arg_to_zval(blitz_tpl *tpl, blitz_node *node, zval *parent_params, call_arg *arg, zval **return_value TSRMLS_DC);
 static inline void blitz_check_arg(blitz_tpl *tpl, blitz_node *node, zval *parent_params, int *not_empty TSRMLS_DC);
 static inline void blitz_check_expr(blitz_tpl *tpl, blitz_node *node, zval *id, unsigned int node_count, zval *parent_params, int *is_true TSRMLS_DC);
 
@@ -1624,7 +1625,9 @@ static inline void blitz_parse_call (char *text, unsigned int len_text, blitz_no
                             node->type = BLITZ_NODE_TYPE_WRAPPER_ESCAPE;
                         } else if (BLITZ_STRING_IS_DATE(node->lexem, node->lexem_len)) {
                             node->type = BLITZ_NODE_TYPE_WRAPPER_DATE;
-                        } 
+                        } else if (BLITZ_STRING_IS_SET(node->lexem, node->lexem_len)) {
+                            node->type = BLITZ_NODE_TYPE_SET;
+                        }
                     }
                 }
 
@@ -1795,7 +1798,9 @@ static inline void blitz_parse_call (char *text, unsigned int len_text, blitz_no
         *error = BLITZ_CALL_ERROR_IF;
     } else if ((node->type == BLITZ_NODE_TYPE_INCLUDE) && (node->n_args != 1)) {
         *error = BLITZ_CALL_ERROR_INCLUDE;
-    } 
+    } else if (node->type == BLITZ_NODE_TYPE_SET && (node->n_args != 2)) {
+        *error = BLITZ_CALL_ERROR_SET;
+    }
 
     /* FIXME: check arguments for wrappers (escape, date, trim) */
 }
@@ -2198,6 +2203,11 @@ static inline int blitz_analizer_add(analizer_ctx *ctx TSRMLS_DC) {
                 "You cannot use method call results in statements or use nested method calls (%s: line %lu, pos %lu)",
                 tpl->static_data.name, get_line_number(body, current_open), get_line_pos(body, current_open)
             );
+        } else if (i_error == BLITZ_CALL_ERROR_SET) {
+            blitz_error(tpl TSRMLS_CC, E_WARNING,
+                "SYNTAX ERROR: invalid <set> syntax (%s: line %lu, pos %lu)",
+                tpl->static_data.name, get_line_number(body, current_open), get_line_pos(body, current_open)
+            );
         }
     } else {
         i_node->hidden = 0;
@@ -2521,7 +2531,8 @@ static inline void blitz_remove_spaces_around_context_tags(blitz_tpl *tpl TSRMLS
             && i_node->type != BLITZ_NODE_TYPE_IF_CONTEXT 
             && i_node->type != BLITZ_NODE_TYPE_UNLESS_CONTEXT 
             && i_node->type != BLITZ_NODE_TYPE_ELSEIF_CONTEXT 
-            && i_node->type != BLITZ_NODE_TYPE_ELSE_CONTEXT)
+            && i_node->type != BLITZ_NODE_TYPE_ELSE_CONTEXT
+            && i_node->type != BLITZ_NODE_TYPE_SET)
         {
             continue;
         }
@@ -2995,7 +3006,134 @@ static inline int blitz_exec_predefined_method(blitz_tpl *tpl, blitz_node *node,
                 efree(inner_result);
             }
         }
+    } else if (node->type == BLITZ_NODE_TYPE_SET) {
+        call_arg *arg = node->args;
+        zval z_src;
+        zval *pz_src = NULL, *z_new;
 
+        if (node->n_args < 2) {
+            if (BLITZ_DEBUG) php_printf("*** FUNCTION *** blitz_exec_predefined_method: set: not enough parameters\n");
+            return 1;
+        }
+
+        if (BLITZ_DEBUG) php_printf("*** FUNCTION *** blitz_exec_predefined_method: setting %s to %s\n", node->args->name, ((call_arg *)(node->args + 1))->name);
+
+        pz_src = &z_src;
+        blitz_arg_to_zval(tpl, node, iteration_params, node->args + 1, &pz_src);
+
+        ALLOC_ZVAL(z_new);
+        *z_new = *pz_src;
+        zval_copy_ctor(z_new);
+        INIT_PZVAL(z_new);
+
+        if (arg->type == BLITZ_ARG_TYPE_VAR_PATH) {
+			char prefix[BLITZ_MAX_LEXEM_LEN];
+			char *key_name = NULL, *tmp = NULL, *infix = NULL;
+			unsigned long key_len = 0, prefix_len = 0, infix_len = 0;
+			zval *obj = NULL, *obj2 = NULL, ***zparam;
+
+			memset(prefix, 0, sizeof(prefix));
+			memcpy(prefix, arg->name, arg->len);
+
+            key_name = strrchr(prefix, '.');
+			if (key_name == NULL) {
+				if (BLITZ_DEBUG) php_printf("*** FUNCTION *** blitz_exec_predefined_method: set: PATH '%s' doesn't contain a dot\n", arg->name);
+				return 1;
+			}
+			*key_name = '\0';
+			++key_name;
+
+			key_len = arg->len - (key_name - prefix);
+			prefix_len = arg->len - key_len - 1;
+
+			// Try to find the path, or the longest part of it. Everything that's not found will be placed in *infix
+			z = &iteration_params;
+			while (!blitz_fetch_var_by_path(&z, prefix, prefix_len, iteration_params, tpl TSRMLS_CC)) {
+				php_printf("-- NICO -- %s -- Didn't find %s\n", arg->name, prefix);
+				tmp = strrchr(prefix, '.');
+				if (tmp == NULL) {
+					// We're at the root
+					ALLOC_INIT_ZVAL(obj);
+					array_init(obj);
+
+/*					if (Z_TYPE_PP(z) != IS_ARRAY && Z_TYPE_PP(z) != IS_OBJECT) {
+						// Convert to array
+						array_init(*z);
+						php_printf("-- NICO -- %s -- Converting zval to array: %p (%p)\n", arg->name, z, *z);
+					} else {
+						php_printf("-- NICO -- %s -- Inited with: %p (%p)\n", arg->name, z, *z);
+					}
+*/
+					zend_hash_update(HASH_OF(*z), prefix, prefix_len + 1, &obj, sizeof(zval *), NULL);
+					php_var_dump(z, 0 TSRMLS_CC);
+
+					php_printf("-- NICO -- %s -- ADDED OBJECT: %p %p TO %p %p (%s)\n", arg->name, &obj, obj, z, *z, prefix);
+
+					*z = obj;
+
+					php_var_dump(&iteration_params, 0 TSRMLS_CC);
+
+					break;
+				} else {
+					// Try with the parent
+					*tmp = '\0';
+					infix = tmp + 1;
+					infix_len += prefix_len - (tmp - prefix);
+					prefix_len = tmp - prefix;
+				}
+			}
+
+			// Create the remaining keys from *infix
+			while (infix_len > 0) {
+				php_printf("-- NICO -- %s -- INFIXING %s (%lu) CURRENT OBJECT: %p %p\n", arg->name, infix, infix_len, z, *z);
+
+				php_var_dump(z, 0 TSRMLS_CC);
+				php_var_dump(&iteration_params, 0 TSRMLS_CC);
+
+				ALLOC_INIT_ZVAL(obj2);
+				array_init(obj2);
+
+				if (Z_TYPE_PP(z) != IS_ARRAY && Z_TYPE_PP(z) != IS_OBJECT) {
+					// Convert to array
+					array_init(*z);
+					php_printf("-- NICO -- %s -- Converting zval to array: %p (%p)\n", arg->name, z, *z);
+				}
+
+				prefix_len = strlen(infix) + 1;
+				zend_hash_update(HASH_OF(*z), infix, prefix_len, &obj2, sizeof(zval *), NULL);
+				php_printf("-- NICO -- %s -- ADDED OBJECT: %p %p TO %p %p (%s )\n", arg->name, &obj2, obj2, z, *z, infix);
+				infix += prefix_len;
+				infix_len -= prefix_len;
+
+				php_var_dump(z, 0 TSRMLS_CC);
+
+				*z = obj2;
+
+				php_var_dump(&iteration_params, 0 TSRMLS_CC);
+			}
+
+			php_printf("-- NICO -- %s -- CURRENT OBJECT: %p %p\n", arg->name, z, *z);
+
+			// Path found/created, update the key with the value
+			zend_hash_update(HASH_OF(*z), key_name, key_len + 1, &z_new, sizeof(zval *), NULL);
+			php_var_dump(z, 0 TSRMLS_CC);
+			php_var_dump(&iteration_params, 0 TSRMLS_CC);
+
+			if (BLITZ_DEBUG) {
+				php_printf("*** FUNCTION *** blitz_exec_predefined_method: set: iteration params are now:\n");
+				php_var_dump(&iteration_params, 0 TSRMLS_CC);
+			}
+
+        } else {
+            zend_hash_update(HASH_OF(iteration_params), arg->name, arg->len + 1, &z_new, sizeof(zval *), NULL);
+
+            if (BLITZ_DEBUG) {
+                php_printf("*** FUNCTION *** blitz_exec_predefined_method: set: iteration params are now:\n");
+                php_var_dump(&iteration_params, 0 TSRMLS_CC);
+            }
+        }
+
+        return 0;
     } else if (node->type >= BLITZ_NODE_TYPE_WRAPPER_ESCAPE && node->type < BLITZ_NODE_TYPE_IF_NF) {
         char *wrapper_args[BLITZ_WRAPPER_MAX_ARGS];
         unsigned int wrapper_args_len[BLITZ_WRAPPER_MAX_ARGS];
@@ -4890,6 +5028,7 @@ static void blitz_register_constants(INIT_FUNC_ARGS) /* {{{ */
     REGISTER_LONG_CONSTANT("BLITZ_NODE_TYPE_INCLUDE", BLITZ_NODE_TYPE_INCLUDE, BLITZ_CONSTANT_FLAGS);    
     REGISTER_LONG_CONSTANT("BLITZ_NODE_TYPE_END", BLITZ_NODE_TYPE_END, BLITZ_CONSTANT_FLAGS);
     REGISTER_LONG_CONSTANT("BLITZ_NODE_TYPE_CONTEXT", BLITZ_NODE_TYPE_CONTEXT, BLITZ_CONSTANT_FLAGS);
+    REGISTER_LONG_CONSTANT("BLITZ_NODE_TYPE_SET", BLITZ_NODE_TYPE_SET, BLITZ_CONSTANT_FLAGS);
 
     REGISTER_LONG_CONSTANT("BLITZ_NODE_TYPE_WRAPPER_ESCAPE", BLITZ_NODE_TYPE_WRAPPER_ESCAPE, BLITZ_CONSTANT_FLAGS);
     REGISTER_LONG_CONSTANT("BLITZ_NODE_TYPE_WRAPPER_DATE", BLITZ_NODE_TYPE_WRAPPER_DATE, BLITZ_CONSTANT_FLAGS);
