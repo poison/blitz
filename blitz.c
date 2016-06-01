@@ -3038,6 +3038,7 @@ static inline int blitz_exec_predefined_method(blitz_tpl *tpl, blitz_node *node,
             key_name = strrchr(prefix, '.');
 			if (key_name == NULL) {
 				if (BLITZ_DEBUG) php_printf("*** FUNCTION *** blitz_exec_predefined_method: set: PATH '%s' doesn't contain a dot\n", arg->name);
+				zval_ptr_dtor(&z_new);
 				return 1;
 			}
 			*key_name = '\0';
