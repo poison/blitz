@@ -1,9 +1,10 @@
 --TEST--
 set in loop
 --FILE--
-<<?php
+<?php
 include('common.inc');
 ini_set('blitz.remove_spaces_around_context_tags', 1);
+ini_set('blitz.warn_context_duplicates', 0);
 
 $body = <<<BODY
 In a list:
@@ -86,35 +87,52 @@ JT
 JT
 
 H
-
 array (
-  'list' =>
+  'list' => 
   array (
-    0 =>
+    0 => 
     array (
       'id' => 3,
       'name' => 'Ralph',
     ),
-    1 =>
+    1 => 
     array (
       'id' => 8,
       'name' => 'Ralph',
     ),
   ),
-  'hero' =>
+  'hero' => 
   array (
-    'nickname' => 'Donald Trump',
     'foo' => 'bar',
   ),
-  'my' =>
+  'my' => 
   array (
-    'foo' =>
+    'foo' => 
     array (
       'bar' => 'JT',
     ),
   ),
-  'idiot' =>
+  'idiot' => 
   array (
     'candidate' => 'Donald Trump',
   ),
+  'a' => 
+  array (
+    'b' => 
+    array (
+      'c' => 
+      array (
+        'd' => 
+        array (
+          'e' => 
+          array (
+            'f' => 
+            array (
+              'g' => 'H'
+            )
+          ),
+        ),
+      ),
+    ),
+  );
 )

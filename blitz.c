@@ -3030,7 +3030,7 @@ static inline int blitz_exec_predefined_method(blitz_tpl *tpl, blitz_node *node,
 			char prefix[BLITZ_MAX_LEXEM_LEN];
 			char *key_name = NULL, *tmp = NULL, *infix = NULL;
 			unsigned long key_len = 0, prefix_len = 0, infix_len = 0;
-			zval *obj = NULL, *obj2 = NULL, ***zparam;
+			zval *obj = NULL;
 
 			memset(prefix, 0, sizeof(prefix));
 			memcpy(prefix, arg->name, arg->len);
@@ -3049,30 +3049,12 @@ static inline int blitz_exec_predefined_method(blitz_tpl *tpl, blitz_node *node,
 			// Try to find the path, or the longest part of it. Everything that's not found will be placed in *infix
 			z = &iteration_params;
 			while (!blitz_fetch_var_by_path(&z, prefix, prefix_len, iteration_params, tpl TSRMLS_CC)) {
-				php_printf("-- NICO -- %s -- Didn't find %s\n", arg->name, prefix);
 				tmp = strrchr(prefix, '.');
 				if (tmp == NULL) {
 					// We're at the root
 					ALLOC_INIT_ZVAL(obj);
 					array_init(obj);
-
-/*					if (Z_TYPE_PP(z) != IS_ARRAY && Z_TYPE_PP(z) != IS_OBJECT) {
-						// Convert to array
-						array_init(*z);
-						php_printf("-- NICO -- %s -- Converting zval to array: %p (%p)\n", arg->name, z, *z);
-					} else {
-						php_printf("-- NICO -- %s -- Inited with: %p (%p)\n", arg->name, z, *z);
-					}
-*/
-					zend_hash_update(HASH_OF(*z), prefix, prefix_len + 1, &obj, sizeof(zval *), NULL);
-					php_var_dump(z, 0 TSRMLS_CC);
-
-					php_printf("-- NICO -- %s -- ADDED OBJECT: %p %p TO %p %p (%s)\n", arg->name, &obj, obj, z, *z, prefix);
-
-					*z = obj;
-
-					php_var_dump(&iteration_params, 0 TSRMLS_CC);
-
+					zend_hash_update(HASH_OF(*z), prefix, prefix_len + 1, &obj, sizeof(zval *), (void **)&z);
 					break;
 				} else {
 					// Try with the parent
@@ -3085,39 +3067,22 @@ static inline int blitz_exec_predefined_method(blitz_tpl *tpl, blitz_node *node,
 
 			// Create the remaining keys from *infix
 			while (infix_len > 0) {
-				php_printf("-- NICO -- %s -- INFIXING %s (%lu) CURRENT OBJECT: %p %p\n", arg->name, infix, infix_len, z, *z);
-
-				php_var_dump(z, 0 TSRMLS_CC);
-				php_var_dump(&iteration_params, 0 TSRMLS_CC);
-
-				ALLOC_INIT_ZVAL(obj2);
-				array_init(obj2);
-
 				if (Z_TYPE_PP(z) != IS_ARRAY && Z_TYPE_PP(z) != IS_OBJECT) {
 					// Convert to array
 					array_init(*z);
-					php_printf("-- NICO -- %s -- Converting zval to array: %p (%p)\n", arg->name, z, *z);
 				}
 
+				ALLOC_INIT_ZVAL(obj);
+				array_init(obj);
+
 				prefix_len = strlen(infix) + 1;
-				zend_hash_update(HASH_OF(*z), infix, prefix_len, &obj2, sizeof(zval *), NULL);
-				php_printf("-- NICO -- %s -- ADDED OBJECT: %p %p TO %p %p (%s )\n", arg->name, &obj2, obj2, z, *z, infix);
+				zend_hash_update(HASH_OF(*z), infix, prefix_len, &obj, sizeof(zval *), (void **)&z);
 				infix += prefix_len;
 				infix_len -= prefix_len;
-
-				php_var_dump(z, 0 TSRMLS_CC);
-
-				*z = obj2;
-
-				php_var_dump(&iteration_params, 0 TSRMLS_CC);
 			}
-
-			php_printf("-- NICO -- %s -- CURRENT OBJECT: %p %p\n", arg->name, z, *z);
 
 			// Path found/created, update the key with the value
 			zend_hash_update(HASH_OF(*z), key_name, key_len + 1, &z_new, sizeof(zval *), NULL);
-			php_var_dump(z, 0 TSRMLS_CC);
-			php_var_dump(&iteration_params, 0 TSRMLS_CC);
 
 			if (BLITZ_DEBUG) {
 				php_printf("*** FUNCTION *** blitz_exec_predefined_method: set: iteration params are now:\n");
